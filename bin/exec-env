@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# asdf-cangjie: exec-env
+# Injects CANGJIE_HOME, PATH, and LD_LIBRARY_PATH for asdf exec invocations.
+# Modeled on the official envsetup.sh from the Cangjie SDK, extended for
+# cross-platform OS detection (Linux, macOS).
+
+set -euo pipefail
+IFS=$'\t\n'
+
+exec_env() {
+    # Platform detection — maps uname to Cangjie SDK directory naming.
+    # macOS SDK tarballs use "mac" prefix (e.g. runtime/lib/mac_arm64_cjnative/).
+    local os_name
+    case "$(uname -s)" in
+        Linux)      os_name="linux" ;;
+        Darwin)     os_name="mac" ;;
+        *)          os_name="linux" ;;
+    esac
+
+    local hw_arch
+    hw_arch="$(uname -m)"
+    : "${hw_arch:=x86_64}"
+
+    # Env var injection (mirrors envsetup.sh:176-178)
+    echo "export CANGJIE_HOME=\"${ASDF_INSTALL_PATH}\""
+    echo "export PATH=\"${ASDF_INSTALL_PATH}/bin:${ASDF_INSTALL_PATH}/tools/bin${PATH:+:${PATH}}:${HOME}/.cjpm/bin\""
+    echo "export LD_LIBRARY_PATH=\"${ASDF_INSTALL_PATH}/runtime/lib/${os_name}_${hw_arch}_cjnative:${ASDF_INSTALL_PATH}/tools/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\""
+}
+
+exec_env

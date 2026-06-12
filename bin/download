@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# asdf-cangjie: download
+# Manual download instruction script. Checks if the Cangjie SDK tarball
+# exists at $ASDF_DOWNLOAD_PATH; if not, prints platform-specific download
+# instructions. Automatic download is deferred pending live HTTP testing
+# of cangjie-lang.cn/download to discover the actual URL scheme and auth.
+
+set -euo pipefail
+IFS=$'\t\n'
+
+fail() {
+    echo "$1" >&2
+    exit 1
+}
+
+download_cangjie() {
+    local install_type="$1"
+    local version="$2"
+    local download_path="$3"
+
+    # Only version installs are supported (no ref/git installs)
+    if [ "$install_type" != "version" ]; then
+        fail "asdf-cangjie only supports install_type=version, got: $install_type"
+    fi
+
+    # Construct the expected tarball filename
+    local platform
+    platform="$(get_platform)"
+    local ext="tar.gz"
+    local filename="cangjie-sdk-${platform}-${version}.${ext}"
+
+    # If the tarball already exists, we're done
+    if [ -f "$download_path" ]; then
+        echo "asdf-cangjie: Found existing download at $download_path" >&2
+        exit 0
+    fi
+
+    # Print download instructions
+    echo "============================================" >&2
+    echo "  Cangjie SDK — Manual Download Required" >&2
+    echo "============================================" >&2
+    echo "" >&2
+    echo "  Automatic download is not yet available." >&2
+    echo "  Please download the SDK tarball manually:" >&2
+    echo "" >&2
+    echo "  1. Visit: https://cangjie-lang.cn/download" >&2
+    echo "  2. Download: $filename" >&2
+    echo "  3. Place it at: $download_path" >&2
+    echo "" >&2
+    echo "  Then re-run: asdf install cangjie $version" >&2
+    echo "============================================" >&2
+    exit 1
+}
+
+get_platform() {
+    # Map uname -s / uname -m to Cangjie SDK tarball platform string.
+    # Tarball naming: cangjie-sdk-{os}-{arch}-{version}.tar.gz
+    #   os:   linux | mac
+    #   arch: x64 | aarch64
+    local os
+    case "$(uname -s)" in
+        Linux)  os="linux" ;;
+        Darwin) os="mac" ;;
+        *)      fail "Unsupported OS: $(uname -s). Cangjie supports Linux and macOS." ;;
+    esac
+
+    local arch
+    case "$(uname -m)" in
+        x86_64)  arch="x64" ;;
+        arm64)    arch="aarch64" ;;
+        aarch64)  arch="aarch64" ;;
+        *)        fail "Unsupported architecture: $(uname -m). Cangjie supports x86_64 and aarch64/arm64." ;;
+    esac
+
+    echo "${os}-${arch}"
+}
+
+download_cangjie "$ASDF_INSTALL_TYPE" "$ASDF_INSTALL_VERSION" "$ASDF_DOWNLOAD_PATH"

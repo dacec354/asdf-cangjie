@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# asdf-cangjie: list-bin-paths
+# Tells asdf to scan both bin/ (compiler) and tools/bin/ (dev tools)
+# for executable shims. Without this, asdf only scans $ASDF_INSTALL_PATH/bin/.
+set -euo pipefail
+IFS=$'\t\n'
+echo "bin tools/bin"

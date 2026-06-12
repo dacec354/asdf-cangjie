@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# asdf-cangjie: latest-stable
+# Returns the latest stable Cangjie SDK version.
+# Delegates to bin/list-all and picks the highest version.
+
+set -euo pipefail
+IFS=$'\t\n'
+
+latest_stable() {
+    local script_dir
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+    # Use list-all to get all versions, then pick the last one (highest)
+    local versions
+    versions="$("$script_dir/list-all")"
+
+    if [ -z "$versions" ]; then
+        echo "1.1.3"  # hardcoded fallback — last known stable
+        return 0
+    fi
+
+    # Split space-separated list and pick the last entry (highest version,
+    # since list-all outputs in sorted order). Use tr to avoid IFS dependency.
+    local last
+    last="$(echo "$versions" | tr ' ' '\n' | tail -1)"
+    echo "$last"
+}
+
+latest_stable

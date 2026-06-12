@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# asdf-cangjie: install
+# Extracts the Cangjie SDK tarball to $ASDF_INSTALL_PATH and validates
+# system dependencies. Modeled on gleam's bin/install pattern with
+# platform detection, subshell extraction, and cleanup on failure.
+
+set -euo pipefail
+IFS=$'\t\n'
+
+fail() {
+    echo "asdf-cangjie: $1" >&2
+    exit 1
+}
+
+install_cangjie() {
+    local install_type="$1"
+    local version="$2"
+    local install_path="$3"
+
+    if [ "$install_type" != "version" ]; then
+        fail "only install_type=version is supported, got: $install_type"
+    fi
+
+    local download_path="$ASDF_DOWNLOAD_PATH"
+    if [ ! -f "$download_path" ]; then
+        fail "download not found at $download_path. Run 'asdf install cangjie $version' to download first."
+    fi
+
+    local platform
+    platform="$(get_platform)"
+
+    echo "asdf-cangjie: Installing Cangjie $version for $platform..." >&2
+
+    # Extract tarball in subshell so cwd is restored.
+    # --strip-components=1 removes the cangjie/ top-level directory,
+    # placing bin/, tools/, runtime/, etc. directly in $install_path.
+    (
+        mkdir -p "$install_path"
+        if ! tar -xzf "$download_path" -C "$install_path" --strip-components=1; then
+            echo "asdf-cangjie: Extraction failed" >&2
+            rm -rf "$install_path"
+            exit 1
+        fi
+    ) || fail "installation failed — extracted directory removed"
+
+    # Validate system dependencies
+    check_system_deps "$install_path" || {
+        rm -rf "$install_path"
+        fail "system dependency check failed — see above for required packages"
+    }
+
+    echo "asdf-cangjie: Cangjie $version installed successfully to $install_path" >&2
+}
+
+get_platform() {
+    # Map uname -s / uname -m to Cangjie SDK tarball platform string.
+    local os
+    case "$(uname -s)" in
+        Linux)  os="linux" ;;
+        Darwin) os="mac" ;;
+        *)      fail "Unsupported OS: $(uname -s). Cangjie supports Linux and macOS." ;;
+    esac
+
+    local arch
+    case "$(uname -m)" in
+        x86_64)  arch="x64" ;;
+        arm64)    arch="aarch64" ;;
+        aarch64)  arch="aarch64" ;;
+        *)        fail "Unsupported architecture: $(uname -m). Cangjie supports x86_64 and aarch64/arm64." ;;
+    esac
+
+    echo "${os}-${arch}"
+}
+
+check_system_deps() {
+    local install_path="$1"
+    local cjc_bin="${install_path}/bin/cjc"
+
+    if [ ! -x "$cjc_bin" ]; then
+        echo "asdf-cangjie: WARNING: cjc binary not found at $cjc_bin — skipping dependency check" >&2
+        return 0
+    fi
+
+    case "$(uname -s)" in
+        Linux)
+            if ! command -v ldd >/dev/null 2>&1; then
+                echo "asdf-cangjie: WARNING: ldd not found — skipping dependency check" >&2
+                return 0
+            fi
+            echo "asdf-cangjie: Checking system dependencies with ldd..." >&2
+            local missing
+            missing="$(ldd "$cjc_bin" 2>&1 | grep "not found" || true)"
+            if [ -n "$missing" ]; then
+                echo "asdf-cangjie: ERROR — missing system dependencies:" >&2
+                echo "$missing" >&2
+                echo "" >&2
+                echo "  Cangjie SDK requires:" >&2
+                echo "    - libstdc++.so.6 (>= 6.0.24, GLIBCXX_3.4.22)" >&2
+                echo "    - glibc >= 2.27" >&2
+                echo "    - libssl.so.3 / libcrypto.so.3 (OpenSSL 3)" >&2
+                echo "" >&2
+                echo "  Ubuntu/Debian: sudo apt-get install build-essential libssl-dev" >&2
+                echo "  See https://cangjie-lang.cn for detailed platform requirements." >&2
+                return 1
+            fi
+            echo "asdf-cangjie: All system dependencies found" >&2
+            ;;
+        Darwin)
+            echo "asdf-cangjie: Checking macOS dependencies..." >&2
+            if ! brew list libffi >/dev/null 2>&1; then
+                echo "asdf-cangjie: ERROR — libffi is required but not installed." >&2
+                echo "asdf-cangjie: Install it with: brew install libffi" >&2
+                return 1
+            fi
+            echo "asdf-cangjie: libffi found" >&2
+            ;;
+        *)
+            echo "asdf-cangjie: WARNING: unknown OS — skipping dependency check" >&2
+            ;;
+    esac
+
+    return 0
+}
+
+install_cangjie "$ASDF_INSTALL_TYPE" "$ASDF_INSTALL_VERSION" "$ASDF_INSTALL_PATH"

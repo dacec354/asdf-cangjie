@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# asdf-cangjie: list-all
+# Lists all available Cangjie SDK versions as a space-separated string.
+# Primary source: git tags from the cangjie_docs repository.
+# Falls back to a curated static list if git fetch fails.
+# Output format: space-separated version strings to stdout.
+
+set -euo pipefail
+IFS=$'\t\n'
+
+list_all_cangjie() {
+    local versions
+
+    # Try git ls-remote from cangjie_docs tags
+    if command -v git >/dev/null 2>&1; then
+        versions="$(git ls-remote --tags --refs https://gitcode.com/Cangjie/cangjie_docs.git 2>/dev/null \
+            | sed 's|^.*refs/tags/v\{0,1\}||' \
+            | grep -vE '(alpha|beta|rc|\.alpha\.|\.beta\.|-alpha|-beta|-rc|bep|cjmp)' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' \
+            | sort -t. -k1,1n -k2,2n -k3,3n \
+            | tr '\n' ' ' \
+            | sed 's/ *$//' \
+            || true)"
+    fi
+
+    # Fallback to static curated list
+    if [ -z "$versions" ]; then
+        versions="1.0.2 1.0.5 1.0.6 1.1.0 1.1.1 1.1.2 1.1.3"
+    fi
+
+    echo "$versions"
+}
+
+list_all_cangjie
