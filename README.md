@@ -5,19 +5,32 @@
 ## Install
 
 ```bash
-asdf plugin add cangjie https://github.com/user/asdf-cangjie.git
+asdf plugin add cangjie https://github.com/dacec354/asdf-cangjie.git
 ```
 
 ## Use
 
 ```bash
+# List available versions
+asdf list-all cangjie
+
+# Show latest version
+asdf latest cangjie
+
 # Install a Cangjie SDK version
 asdf install cangjie 1.1.3
 
-# Set as default
-asdf global cangjie 1.1.3
+# Set version (current directory)
+asdf set cangjie 1.1.3
+
+# Set version for all directories (home)
+asdf set -u cangjie 1.1.3
+
+# Set version using latest
+asdf set cangjie latest
 
 # Verify
+asdf current cangjie
 cjc --version
 cjpm --version
 ```
