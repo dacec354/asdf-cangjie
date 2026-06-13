@@ -1,0 +1,7 @@
+# Tool artifacts
+.codegraph/
+.rpiv/
+
+# OS
+.DS_Store
+Thumbs.db
