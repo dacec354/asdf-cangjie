@@ -7,8 +7,8 @@
 # Platform detection — maps uname to Cangjie SDK directory naming.
 local_os_name="linux"
 case "$(uname -s)" in
-    Linux)  local_os_name="linux" ;;
-    Darwin) local_os_name="mac" ;;
+  Linux) local_os_name="linux" ;;
+  Darwin) local_os_name="mac" ;;
 esac
 
 local_hw_arch="$(uname -m)"
