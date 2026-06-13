@@ -35,9 +35,9 @@ cjc --version
 cjpm --version
 ```
 
-> **Note:** Automatic download is not yet available. `asdf install` will prompt you to
-> manually download the SDK tarball from [cangjie-lang.cn/download](https://cangjie-lang.cn/download)
-> and place it in the indicated location.
+> **Note:** Downloads are resolved from the [cangjie-version-manifest](https://github.com/Zxilly/cangjie-version-manifest)
+> maintained by the [cjv](https://github.com/Zxilly/cjv) project. Set `CANGJIE_MANIFEST_URL` to
+> use a custom mirror.
 
 ## System Requirements
 
@@ -93,6 +93,12 @@ All Cangjie SDK tools are available as asdf shims:
 | `hle` | tools/bin/ | Heterogeneous language extension |
 | `LSPServer` | tools/bin/ | Language server |
 | `LSPMacroServer` | tools/bin/ | LSP macro server |
+
+## Credits
+
+Download URLs are resolved from the [cangjie-version-manifest](https://github.com/Zxilly/cangjie-version-manifest)
+maintained by the [cjv](https://github.com/Zxilly/cjv) project, a community Cangjie version manager.
+Without their work tracking auth-protected download URLs, automatic installation would not be possible.
 
 ## License
 

@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # asdf-cangjie: download
-# Manual download instruction script. Checks if the Cangjie SDK tarball
-# exists at $ASDF_DOWNLOAD_PATH; if not, prints platform-specific download
-# instructions. Automatic download is deferred pending live HTTP testing
-# of cangjie-lang.cn/download to discover the actual URL scheme and auth.
+# Downloads the Cangjie SDK tarball for the requested version and platform.
+# Resolves download URLs from the cangjie-version-manifest.
+#
+# Manifest source: https://github.com/Zxilly/cangjie-version-manifest
+# The manifest is maintained by the cjv project and maps every released
+# version to the correct auth-protected download URL on cangjie-lang.cn.
 
 set -euo pipefail
 IFS=$'\t\n'
 
+# Default manifest URL; override with CANGJIE_MANIFEST_URL env var for mirrors.
+MANIFEST_URL="${CANGJIE_MANIFEST_URL:-https://raw.githubusercontent.com/Zxilly/cangjie-version-manifest/refs/heads/master/versions.json}"
+
 fail() {
-    echo "$1" >&2
+    echo "asdf-cangjie: $1" >&2
     exit 1
 }
 
@@ -18,45 +23,178 @@ download_cangjie() {
     local version="$2"
     local download_path="$3"
 
-    # Only version installs are supported (no ref/git installs)
     if [ "$install_type" != "version" ]; then
-        fail "asdf-cangjie only supports install_type=version, got: $install_type"
+        fail "only install_type=version is supported, got: $install_type"
     fi
 
-    # Construct the expected tarball filename
-    local platform
-    platform="$(get_platform)"
-    local ext="tar.gz"
-    local filename="cangjie-sdk-${platform}-${version}.${ext}"
+    # asdf may set ASDF_DOWNLOAD_PATH to a directory (older asdf) or a file
+    # path. Normalise to a file path inside the directory if needed.
+    if [ -d "$download_path" ]; then
+        local platform
+        platform="$(get_tarball_platform)"
+        local ext="tar.gz"
+        local filename="cangjie-sdk-${platform}-${version}.${ext}"
+        download_path="${download_path%/}/${filename}"
+    fi
 
-    # If the tarball already exists, we're done
+    # If tarball already exists, skip download
     if [ -f "$download_path" ]; then
         echo "asdf-cangjie: Found existing download at $download_path" >&2
         exit 0
     fi
 
-    # Print download instructions
-    echo "============================================" >&2
-    echo "  Cangjie SDK — Manual Download Required" >&2
-    echo "============================================" >&2
-    echo "" >&2
-    echo "  Automatic download is not yet available." >&2
-    echo "  Please download the SDK tarball manually:" >&2
-    echo "" >&2
-    echo "  1. Visit: https://cangjie-lang.cn/download" >&2
-    echo "  2. Download: $filename" >&2
-    echo "  3. Place it at: $download_path" >&2
-    echo "" >&2
-    echo "  Then re-run: asdf install cangjie $version" >&2
-    echo "============================================" >&2
-    exit 1
+    # Determine manifest key (e.g. linux-x64, darwin-arm64)
+    local manifest_key
+    manifest_key="$(get_manifest_key)"
+
+    # Fetch and parse the manifest to find the download URL
+    local resolved download_url sha256
+    resolved="$(resolve_version "$version" "$manifest_key")"
+    download_url="${resolved%% *}"
+    sha256="${resolved#* }"
+    # Trim trailing whitespace from sha256 (manifest may not include one)
+    sha256="${sha256%% *}"
+    [ "$sha256" = "$download_url" ] && sha256=""
+
+    if [ -z "$download_url" ]; then
+        echo "============================================" >&2
+        echo "  Cangjie SDK v$version — Not Found" >&2
+        echo "============================================" >&2
+        echo "" >&2
+        echo "  No download available for:" >&2
+        echo "    Version:  $version" >&2
+        echo "    Platform: $manifest_key" >&2
+        echo "" >&2
+        echo "  Check available versions with: asdf list-all cangjie" >&2
+        echo "  Or visit: https://cangjie-lang.cn/download" >&2
+        echo "============================================" >&2
+        exit 1
+    fi
+
+    echo "asdf-cangjie: Downloading Cangjie SDK $version ($manifest_key)..." >&2
+    echo "asdf-cangjie: URL: $download_url" >&2
+
+    # Download with curl. Use --fail so curl exits non-zero on HTTP errors.
+    # -L follows redirects; -C - enables resume; --progress-bar shows progress.
+    if ! curl -fL --progress-bar -C - -o "$download_path" "$download_url"; then
+        rm -f "$download_path"
+        fail "download failed — check your network connection and try again"
+    fi
+
+    # Verify SHA256 if available
+    if [ -n "$sha256" ]; then
+        echo "asdf-cangjie: Verifying checksum..." >&2
+        local actual
+        actual="$(sha256sum "$download_path" | cut -d' ' -f1)"
+        if [ "${actual,,}" != "${sha256,,}" ]; then
+            rm -f "$download_path"
+            fail "checksum mismatch!\n  expected: ${sha256,,}\n  got:      ${actual,,}"
+        fi
+        echo "asdf-cangjie: Checksum OK" >&2
+    fi
+
+    echo "asdf-cangjie: Download complete ($(du -h "$download_path" | cut -f1))" >&2
 }
 
-get_platform() {
-    # Map uname -s / uname -m to Cangjie SDK tarball platform string.
-    # Tarball naming: cangjie-sdk-{os}-{arch}-{version}.tar.gz
-    #   os:   linux | mac
-    #   arch: x64 | aarch64
+# resolve_version fetches the manifest and looks up the download URL + SHA256
+# for the given version and manifest key. Searches both LTS and STS channels.
+# Outputs: "<url> <sha256>" (both empty if not found)
+resolve_version() {
+    local version="$1"
+    local manifest_key="$2"
+
+    # Fetch manifest (first try with curl, fall back to wget)
+    local manifest
+    if command -v curl >/dev/null 2>&1; then
+        manifest="$(curl -fsSL "$MANIFEST_URL" 2>/dev/null || true)"
+    elif command -v wget >/dev/null 2>&1; then
+        manifest="$(wget -qO- "$MANIFEST_URL" 2>/dev/null || true)"
+    fi
+
+    if [ -z "$manifest" ]; then
+        echo "asdf-cangjie: WARNING: Could not fetch version manifest from $MANIFEST_URL" >&2
+        # Fall back to manual download instructions
+        echo "" ""
+        return 0
+    fi
+
+    # Check for jq; if not available, use grep/sed fallback
+    if command -v jq >/dev/null 2>&1; then
+        _resolve_with_jq "$manifest" "$version" "$manifest_key"
+    else
+        _resolve_with_grep "$manifest" "$version" "$manifest_key"
+    fi
+}
+
+_resolve_with_jq() {
+    local manifest="$1"
+    local version="$2"
+    local manifest_key="$3"
+
+    # Try LTS channel first, then STS
+    local result
+    for channel in lts sts; do
+        result="$(echo "$manifest" | jq -r \
+            ".channels.${channel}.versions[\"${version}\"][\"${manifest_key}\"] | \"\(.url) \(.sha256)\"" 2>/dev/null || true)"
+        if [ -n "$result" ] && [ "$result" != "null null" ]; then
+            echo "$result"
+            return 0
+        fi
+    done
+    echo "" ""
+}
+
+_resolve_with_grep() {
+    local manifest="$1"
+    local version="$2"
+    local manifest_key="$3"
+
+    # Fallback parser using grep + sed. Handles JSON without jq dependency.
+    # Strategy: extract the version block, then the manifest_key block, then url/sha256.
+    local url sha256
+
+    # Find the URL for version + key
+    url="$(echo "$manifest" | grep -A200 "\"${version}\":" | \
+        grep -A50 "\"${manifest_key}\":" | \
+        grep '"url"' | head -1 | \
+        sed 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || true)"
+
+    sha256="$(echo "$manifest" | grep -A200 "\"${version}\":" | \
+        grep -A50 "\"${manifest_key}\":" | \
+        grep '"sha256"' | head -1 | \
+        sed 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || true)"
+
+    echo "$url $sha256"
+}
+
+# get_manifest_key maps uname -s / uname -m to the key used in the version manifest.
+# Manifest keys: linux-x64, linux-arm64, darwin-arm64, darwin-x64
+# Note: macOS x86_64 is NOT available for version 1.1.3+ (Apple Silicon only).
+get_manifest_key() {
+    local os
+    case "$(uname -s)" in
+        Linux)  os="linux" ;;
+        Darwin) os="darwin" ;;
+        *)      fail "Unsupported OS: $(uname -s). Cangjie supports Linux and macOS." ;;
+    esac
+
+    local arch
+    case "$(uname -m)" in
+        x86_64)  arch="x64" ;;
+        arm64)    arch="arm64" ;;
+        aarch64)  arch="arm64" ;;
+        *)        fail "Unsupported architecture: $(uname -m). Cangjie supports x86_64 and aarch64/arm64." ;;
+    esac
+
+    echo "${os}-${arch}"
+}
+
+# get_tarball_platform maps uname to the tarball filename convention.
+# Used for constructing the download filename inside ASDF_DOWNLOAD_PATH.
+# Tarball naming: cangjie-sdk-{os}-{arch}-{version}.tar.gz
+#   os:   linux | mac
+#   arch: x64 | aarch64
+get_tarball_platform() {
     local os
     case "$(uname -s)" in
         Linux)  os="linux" ;;

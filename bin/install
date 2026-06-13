@@ -22,8 +22,14 @@ install_cangjie() {
     fi
 
     local download_path="$ASDF_DOWNLOAD_PATH"
+
+    # asdf may set ASDF_DOWNLOAD_PATH to a directory; find the tarball inside it
+    if [ -d "$download_path" ]; then
+        download_path="$(ls -t "$download_path"/*.tar.gz 2>/dev/null | head -1 || true)"
+    fi
+
     if [ ! -f "$download_path" ]; then
-        fail "download not found at $download_path. Run 'asdf install cangjie $version' to download first."
+        fail "download not found at $ASDF_DOWNLOAD_PATH. Run 'asdf install cangjie $version' to download first."
     fi
 
     local platform
